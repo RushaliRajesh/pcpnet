@@ -11,10 +11,18 @@ import torch.nn.parallel
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
-from tensorboardX import SummaryWriter # https://github.com/lanpa/tensorboard-pytorch
+import pdb
+from model import CNN
+import numpy as np
+from torch.utils.data import DataLoader
+import torch.nn as nn
+import torch.nn.functional as F
+
+# from tensorboardX import SummaryWriter # https://github.com/lanpa/tensorboard-pytorch
 import utils
-from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-from pcpnet import PCPNet, MSPCPNet
+# from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
+from dataset_impro import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -33,7 +41,7 @@ def parse_arguments():
 
     # training parameters
     parser.add_argument('--nepoch', type=int, default=2000, help='number of epochs to train for')
-    parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
+    parser.add_argument('--batchSize', type=int, default=8, help='input batch size')
     parser.add_argument('--patch_radius', type=float, default=[0.05], nargs='+', help='patch radius in multiples of the shape\'s bounding box diagonal, multiple values for multi-scale.')
     parser.add_argument('--patch_center', type=str, default='point', help='center patch at...\n'
                         'point: center point\n'
@@ -121,27 +129,27 @@ def train_pcpnet(opt):
     if pred_dim <= 0:
         raise ValueError('Prediction is empty for the given outputs.')
 
-    # create model
-    if len(opt.patch_radius) == 1:
-        pcpnet = PCPNet(
-            num_points=opt.points_per_patch,
-            output_dim=pred_dim,
-            use_point_stn=opt.use_point_stn,
-            use_feat_stn=opt.use_feat_stn,
-            sym_op=opt.sym_op,
-            point_tuple=opt.point_tuple)
-    else:
-        pcpnet = MSPCPNet(
-            num_scales=len(opt.patch_radius),
-            num_points=opt.points_per_patch,
-            output_dim=pred_dim,
-            use_point_stn=opt.use_point_stn,
-            use_feat_stn=opt.use_feat_stn,
-            sym_op=opt.sym_op,
-            point_tuple=opt.point_tuple)
+    # # create model
+    # if len(opt.patch_radius) == 1:
+    #     pcpnet = PCPNet(
+    #         num_points=opt.points_per_patch,
+    #         output_dim=pred_dim,
+    #         use_point_stn=opt.use_point_stn,
+    #         use_feat_stn=opt.use_feat_stn,
+    #         sym_op=opt.sym_op,
+    #         point_tuple=opt.point_tuple)
+    # else:
+    #     pcpnet = MSPCPNet(
+    #         num_scales=len(opt.patch_radius),
+    #         num_points=opt.points_per_patch,
+    #         output_dim=pred_dim,
+    #         use_point_stn=opt.use_point_stn,
+    #         use_feat_stn=opt.use_feat_stn,
+    #         sym_op=opt.sym_op,
+    #         point_tuple=opt.point_tuple)
 
-    if opt.refine != '':
-        pcpnet.load_state_dict(torch.load(opt.refine))
+    # if opt.refine != '':
+    #     pcpnet.load_state_dict(torch.load(opt.refine))
 
     if opt.seed < 0:
         opt.seed = random.randint(1, 10000)
@@ -150,7 +158,10 @@ def train_pcpnet(opt):
     random.seed(opt.seed)
     torch.manual_seed(opt.seed)
 
+    import time
+    
     # create train and test dataset loaders
+    # pdb.set_trace()
     train_dataset = PointcloudPatchDataset(
         root=opt.indir,
         shape_list_filename=opt.trainset,
@@ -164,233 +175,278 @@ def train_pcpnet(opt):
         center=opt.patch_center,
         point_tuple=opt.point_tuple,
         cache_capacity=opt.cache_capacity)
-    if opt.training_order == 'random':
-        train_datasampler = RandomPointcloudPatchSampler(
-            train_dataset,
-            patches_per_shape=opt.patches_per_shape,
-            seed=opt.seed,
-            identical_epochs=opt.identical_epochs)
-    elif opt.training_order == 'random_shape_consecutive':
-        train_datasampler = SequentialShapeRandomPointcloudPatchSampler(
-            train_dataset,
-            patches_per_shape=opt.patches_per_shape,
-            seed=opt.seed,
-            identical_epochs=opt.identical_epochs)
-    else:
-        raise ValueError('Unknown training order: %s' % (opt.training_order))
+    
+    print(len(train_dataset))
+    # t = time.time()
+    kuchbhi = train_dataset[7]
+
+    # pdb.set_trace()
+    # for i in range(len(train_dataset)):
+    #     print(train_dataset[i][0].shape)
+    #     print(train_dataset[i][1].shape)
+        
+        
+    # out = train_dataset[222]
+    # print("c: ",c)
+    # print(time.time()-t)    
+    
+    # if opt.training_order == 'random':
+    train_datasampler = RandomPointcloudPatchSampler(
+        train_dataset,
+        patches_per_shape=opt.patches_per_shape,
+        seed=opt.seed,
+        identical_epochs=opt.identical_epochs)
+    
+    # c=0
+    # for i in train_dataset:
+    #     c=c+1
+    #     print(train_dataset[0])
+    # print(c)        
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         sampler=train_datasampler,
         batch_size=opt.batchSize,
         num_workers=int(opt.workers))
+    
+    for i in train_dataloader:
+        print(len(i[0]))
+        break
+    
+    # pdb.set_trace()
 
-    test_dataset = PointcloudPatchDataset(
-        root=opt.indir,
-        shape_list_filename=opt.testset,
-        patch_radius=opt.patch_radius,
-        points_per_patch=opt.points_per_patch,
-        patch_features=target_features,
-        point_count_std=opt.patch_point_count_std,
-        seed=opt.seed,
-        identical_epochs=opt.identical_epochs,
-        use_pca=opt.use_pca,
-        center=opt.patch_center,
-        point_tuple=opt.point_tuple,
-        cache_capacity=opt.cache_capacity)
-    if opt.training_order == 'random':
-        test_datasampler = RandomPointcloudPatchSampler(
-            test_dataset,
-            patches_per_shape=opt.patches_per_shape,
-            seed=opt.seed,
-            identical_epochs=opt.identical_epochs)
-    elif opt.training_order == 'random_shape_consecutive':
-        test_datasampler = SequentialShapeRandomPointcloudPatchSampler(
-            test_dataset,
-            patches_per_shape=opt.patches_per_shape,
-            seed=opt.seed,
-            identical_epochs=opt.identical_epochs)
-    else:
-        raise ValueError('Unknown training order: %s' % (opt.training_order))
-
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
-        sampler=test_datasampler,
-        batch_size=opt.batchSize,
-        num_workers=int(opt.workers))
-
-    # keep the exact training shape names for later reference
-    opt.train_shapes = train_dataset.shape_names
-    opt.test_shapes = test_dataset.shape_names
-
-    print('training set: %d patches (in %d batches) - test set: %d patches (in %d batches)' %
-          (len(train_datasampler), len(train_dataloader), len(test_datasampler), len(test_dataloader)))
+    # print('training set: %d patches (in %d batches) ' %
+    #       (len(train_datasampler), len(train_dataloader)))
 
     try:
         os.makedirs(opt.outdir)
     except OSError:
         pass
+    
+    def loss_func(pred, target):
+        pred = nn.functional.normalize(pred, dim=1)
+        target = nn.functional.normalize(target, dim=1)
+        # dot = torch.abs(torch.diag(torch.dot(pred, target)))
+        dot = torch.sum(pred * target, dim=1)
+        loss = torch.mean(torch.acos(dot))   
+        # loss = 1 - torch.mean(dot)
+        # pdb.set_trace()
+        return loss
+    
+    model = CNN()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)
 
-
-    train_writer = SummaryWriter(os.path.join(log_dirname, 'train'))
-    test_writer = SummaryWriter(os.path.join(log_dirname, 'test'))
-
-    optimizer = optim.SGD(pcpnet.parameters(), lr=opt.lr, momentum=opt.momentum)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[], gamma=0.1) # milestones in number of optimizer iterations
-    pcpnet.to(device)
-
-    train_num_batch = len(train_dataloader)
-    test_num_batch = len(test_dataloader)
-
-    # save parameters
-    torch.save(opt, params_filename)
-
-    # save description
-    with open(desc_filename, 'w+') as text_file:
-        print(opt.desc, file=text_file)
+    tr_loss_per_epoch = []
+    val_loss_per_epoch = []
 
     for epoch in range(opt.nepoch):
+        train_loss = []
+        val_loss = []
+        model.train()
+        for i, (data, norms) in enumerate(train_dataloader, 0):
+            inputs = data.float()
+            inputs = inputs[:,:,:,:3]
+            # pdb.set_trace()
+            inputs = inputs.permute(0,3,1,2)
+            # pdb.set_trace()
+            norms = norms.float()
+            inputs, norms = inputs.to(device), norms.to(device)
+            
+            out = model(inputs)
+            
+            loss = loss_func(out, norms)
 
-        train_batchind = -1
-        train_fraction_done = 0.0
-        train_enum = enumerate(train_dataloader, 0)
-
-        test_batchind = -1
-        test_fraction_done = 0.0
-        test_enum = enumerate(test_dataloader, 0)
-
-        for train_batchind, data in train_enum:
-
-            # update learning rate
-            scheduler.step(epoch * train_num_batch + train_batchind)
-
-            # set to training mode
-            pcpnet.train()
-
-            # get trainingset batch and upload to GPU
-            points = data[0]
-            target = data[1:-1]
-
-            points = points.transpose(2, 1)
-            points = points.to(device)
-
-            target = tuple(t.to(device) for t in target)
-
-            # zero gradients
             optimizer.zero_grad()
-
-            # forward pass
-            pred, trans, _, _ = pcpnet(points)
-
-            loss = compute_loss(
-                pred=pred, target=target,
-                outputs=opt.outputs,
-                output_pred_ind=output_pred_ind,
-                output_target_ind=output_target_ind,
-                output_loss_weight=output_loss_weight,
-                patch_rot=trans if opt.use_point_stn else None,
-                normal_loss=opt.normal_loss)
-
-            # backpropagate through entire network to compute gradients of loss w.r.t. parameters
             loss.backward()
-
-            # parameter optimization step
             optimizer.step()
 
-            train_fraction_done = (train_batchind+1) / train_num_batch
+            train_loss.append(loss.item())
+            # pdb.set_trace()
 
-            # print info and update log file
-            print('[%s %d: %d/%d] %s loss: %f' % (opt.name, epoch, train_batchind, train_num_batch-1, green('train'), loss.item()))
-            train_writer.add_scalar('loss', loss.item(), (epoch + train_fraction_done) * train_num_batch * opt.batchSize)
+        tot_train_loss = np.mean(train_loss)  
+        tr_loss_per_epoch.append(tot_train_loss)  
+        # print(f'epoch: {epoch}, training loss: {tot_train_loss}')
+        
+        # with torch.no_grad():
+        #     model.eval()
+        #     for i, (data, norms) in enumerate(val_loader, 0):
+        #         inputs = data.float()
+        #         inputs = inputs.permute(0,3,1,2)
+        #         norms = norms.float()
+        #         inputs, norms = inputs.to(device), norms.to(device)
+                
+        #         out = model(inputs)
+        #         loss = loss_func(out, norms)
 
-            while test_fraction_done <= train_fraction_done and test_batchind+1 < test_num_batch:
+        #         val_loss.append(loss.item())
 
-                # set to evaluation mode
-                pcpnet.eval()
+        # tot_val_loss = np.mean(val_loss)
+        # val_loss_per_epoch.append(tot_val_loss)
+        print(f'epoch: {epoch}, training loss: {tot_train_loss}')
+            
 
-                test_batchind, data = next(test_enum)
-
-                # get testset batch and upload to GPU
-                points = data[0]
-                target = data[1:-1]
-
-                points = points.transpose(2, 1)
-                points = points.to(device)
-
-                target = tuple(t.to(device) for t in target)
-
-                # forward pass
-                with torch.no_grad():
-                    pred, trans, _, _ = pcpnet(points)
-
-                loss = compute_loss(
-                    pred=pred, target=target,
-                    outputs=opt.outputs,
-                    output_pred_ind=output_pred_ind,
-                    output_target_ind=output_target_ind,
-                    output_loss_weight=output_loss_weight,
-                    patch_rot=trans if opt.use_point_stn else None,
-                    normal_loss=opt.normal_loss)
-
-                test_fraction_done = (test_batchind+1) / test_num_batch
-
-                # print info and update log file
-                print('[%s %d: %d/%d] %s loss: %f' % (opt.name, epoch, train_batchind, train_num_batch-1, blue('test'), loss.item()))
-                test_writer.add_scalar('loss', loss.item(), (epoch + test_fraction_done) * train_num_batch * opt.batchSize)
-
-        # save model, overwriting the old model
-        if epoch % opt.saveinterval == 0 or epoch == opt.nepoch-1:
-            torch.save(pcpnet.state_dict(), model_filename)
-
-        # save model in a separate file in epochs 0,5,10,50,100,500,1000, ...
-        if epoch % (5 * 10**math.floor(math.log10(max(2, epoch-1)))) == 0 or epoch % 100 == 0 or epoch == opt.nepoch-1:
-            torch.save(pcpnet.state_dict(), os.path.join(opt.outdir, '%s_model_%d.pth' % (opt.name, epoch)))
-
-
-def compute_loss(pred, target, outputs, output_pred_ind, output_target_ind, output_loss_weight, patch_rot, normal_loss):
-
-    loss = 0
-
-    for oi, o in enumerate(outputs):
-        if o == 'unoriented_normals' or o == 'oriented_normals':
-            o_pred = pred[:, output_pred_ind[oi]:output_pred_ind[oi]+3]
-            o_target = target[output_target_ind[oi]]
-
-            if patch_rot is not None:
-                # transform predictions with inverse transform
-                # since we know the transform to be a rotation (QSTN), the transpose is the inverse
-                o_pred = torch.bmm(o_pred.unsqueeze(1), patch_rot.transpose(2, 1)).squeeze(1)
-
-            if o == 'unoriented_normals':
-                if normal_loss == 'ms_euclidean':
-                    loss += torch.min((o_pred-o_target).pow(2).sum(1), (o_pred+o_target).pow(2).sum(1)).mean() * output_loss_weight[oi]
-                elif normal_loss == 'ms_oneminuscos':
-                    loss += (1-torch.abs(utils.cos_angle(o_pred, o_target))).pow(2).mean() * output_loss_weight[oi]
-                else:
-                    raise ValueError('Unsupported loss type: %s' % (normal_loss))
-            elif o == 'oriented_normals':
-                if normal_loss == 'ms_euclidean':
-                    loss += (o_pred-o_target).pow(2).sum(1).mean() * output_loss_weight[oi]
-                elif normal_loss == 'ms_oneminuscos':
-                    loss += (1-utils.cos_angle(o_pred, o_target)).pow(2).mean() * output_loss_weight[oi]
-                else:
-                    raise ValueError('Unsupported loss type: %s' % (normal_loss))
-            else:
-                raise ValueError('Unsupported output type: %s' % (o))
-
-        elif o == 'max_curvature' or o == 'min_curvature':
-            o_pred = pred[:, output_pred_ind[oi]:output_pred_ind[oi]+1]
-            o_target = target[output_target_ind[oi]]
-
-            # Rectified mse loss: mean square of (pred - gt) / max(1, |gt|)
-            normalized_diff = (o_pred - o_target) / torch.clamp(torch.abs(o_target), min=1)
-            loss += normalized_diff.pow(2).mean() * output_loss_weight[oi]
-
-        else:
-            raise ValueError('Unsupported output type: %s' % (o))
-
-    return loss
 
 if __name__ == '__main__':
     train_opt = parse_arguments()
     train_pcpnet(train_opt)
+
+
+#     optimizer = optim.SGD(pcpnet.parameters(), lr=opt.lr, momentum=opt.momentum)
+#     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[], gamma=0.1) # milestones in number of optimizer iterations
+#     pcpnet.to(device)
+
+#     train_num_batch = len(train_dataloader)
+#     test_num_batch = len(test_dataloader)
+
+#     # save parameters
+#     torch.save(opt, params_filename)
+
+#     # save description
+#     with open(desc_filename, 'w+') as text_file:
+#         print(opt.desc, file=text_file)
+
+#     for epoch in range(opt.nepoch):
+
+#         train_batchind = -1
+#         train_fraction_done = 0.0
+#         train_enum = enumerate(train_dataloader, 0)
+
+#         test_batchind = -1
+#         test_fraction_done = 0.0
+#         test_enum = enumerate(test_dataloader, 0)
+
+#         for train_batchind, data in train_enum:
+#             print(train_batchind.shape)
+#             # pdb.set_trace()
+#             # update learning rate
+#             scheduler.step(epoch * train_num_batch + train_batchind)
+
+#             # set to training mode
+#             pcpnet.train()
+
+#             # get trainingset batch and upload to GPU
+#             points = data[0]
+#             target = data[1:-1]
+
+#             points = points.transpose(2, 1)
+#             points = points.to(device)
+
+#             target = tuple(t.to(device) for t in target)
+
+#             # zero gradients
+#             optimizer.zero_grad()
+
+#             # forward pass
+#             pred, trans, _, _ = pcpnet(points)
+
+#             loss = compute_loss(
+#                 pred=pred, target=target,
+#                 outputs=opt.outputs,
+#                 output_pred_ind=output_pred_ind,
+#                 output_target_ind=output_target_ind,
+#                 output_loss_weight=output_loss_weight,
+#                 patch_rot=trans if opt.use_point_stn else None,
+#                 normal_loss=opt.normal_loss)
+
+#             # backpropagate through entire network to compute gradients of loss w.r.t. parameters
+#             loss.backward()
+
+#             # parameter optimization step
+#             optimizer.step()
+
+#             train_fraction_done = (train_batchind+1) / train_num_batch
+
+#             # print info and update log file
+#             print('[%s %d: %d/%d] %s loss: %f' % (opt.name, epoch, train_batchind, train_num_batch-1, green('train'), loss.item()))
+#             train_writer.add_scalar('loss', loss.item(), (epoch + train_fraction_done) * train_num_batch * opt.batchSize)
+
+#             while test_fraction_done <= train_fraction_done and test_batchind+1 < test_num_batch:
+
+#                 # set to evaluation mode
+#                 pcpnet.eval()
+
+#                 test_batchind, data = next(test_enum)
+
+#                 # get testset batch and upload to GPU
+#                 points = data[0]
+#                 target = data[1:-1]
+
+#                 points = points.transpose(2, 1)
+#                 points = points.to(device)
+
+#                 target = tuple(t.to(device) for t in target)
+
+#                 # forward pass
+#                 with torch.no_grad():
+#                     pred, trans, _, _ = pcpnet(points)
+
+#                 loss = compute_loss(
+#                     pred=pred, target=target,
+#                     outputs=opt.outputs,
+#                     output_pred_ind=output_pred_ind,
+#                     output_target_ind=output_target_ind,
+#                     output_loss_weight=output_loss_weight,
+#                     patch_rot=trans if opt.use_point_stn else None,
+#                     normal_loss=opt.normal_loss)
+
+#                 test_fraction_done = (test_batchind+1) / test_num_batch
+
+#                 # print info and update log file
+#                 print('[%s %d: %d/%d] %s loss: %f' % (opt.name, epoch, train_batchind, train_num_batch-1, blue('test'), loss.item()))
+#                 test_writer.add_scalar('loss', loss.item(), (epoch + test_fraction_done) * train_num_batch * opt.batchSize)
+
+#         # save model, overwriting the old model
+#         if epoch % opt.saveinterval == 0 or epoch == opt.nepoch-1:
+#             torch.save(pcpnet.state_dict(), model_filename)
+
+#         # save model in a separate file in epochs 0,5,10,50,100,500,1000, ...
+#         if epoch % (5 * 10**math.floor(math.log10(max(2, epoch-1)))) == 0 or epoch % 100 == 0 or epoch == opt.nepoch-1:
+#             torch.save(pcpnet.state_dict(), os.path.join(opt.outdir, '%s_model_%d.pth' % (opt.name, epoch)))
+
+
+# def compute_loss(pred, target, outputs, output_pred_ind, output_target_ind, output_loss_weight, patch_rot, normal_loss):
+
+#     loss = 0
+
+#     for oi, o in enumerate(outputs):
+#         if o == 'unoriented_normals' or o == 'oriented_normals':
+#             o_pred = pred[:, output_pred_ind[oi]:output_pred_ind[oi]+3]
+#             o_target = target[output_target_ind[oi]]
+
+#             if patch_rot is not None:
+#                 # transform predictions with inverse transform
+#                 # since we know the transform to be a rotation (QSTN), the transpose is the inverse
+#                 o_pred = torch.bmm(o_pred.unsqueeze(1), patch_rot.transpose(2, 1)).squeeze(1)
+
+#             if o == 'unoriented_normals':
+#                 if normal_loss == 'ms_euclidean':
+#                     loss += torch.min((o_pred-o_target).pow(2).sum(1), (o_pred+o_target).pow(2).sum(1)).mean() * output_loss_weight[oi]
+#                 elif normal_loss == 'ms_oneminuscos':
+#                     loss += (1-torch.abs(utils.cos_angle(o_pred, o_target))).pow(2).mean() * output_loss_weight[oi]
+#                 else:
+#                     raise ValueError('Unsupported loss type: %s' % (normal_loss))
+#             elif o == 'oriented_normals':
+#                 if normal_loss == 'ms_euclidean':
+#                     loss += (o_pred-o_target).pow(2).sum(1).mean() * output_loss_weight[oi]
+#                 elif normal_loss == 'ms_oneminuscos':
+#                     loss += (1-utils.cos_angle(o_pred, o_target)).pow(2).mean() * output_loss_weight[oi]
+#                 else:
+#                     raise ValueError('Unsupported loss type: %s' % (normal_loss))
+#             else:
+#                 raise ValueError('Unsupported output type: %s' % (o))
+
+#         elif o == 'max_curvature' or o == 'min_curvature':
+#             o_pred = pred[:, output_pred_ind[oi]:output_pred_ind[oi]+1]
+#             o_target = target[output_target_ind[oi]]
+
+#             # Rectified mse loss: mean square of (pred - gt) / max(1, |gt|)
+#             normalized_diff = (o_pred - o_target) / torch.clamp(torch.abs(o_target), min=1)
+#             loss += normalized_diff.pow(2).mean() * output_loss_weight[oi]
+
+#         else:
+#             raise ValueError('Unsupported output type: %s' % (o))
+
+#     return loss
+
