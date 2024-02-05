@@ -178,7 +178,7 @@ def train_pcpnet(opt):
     
     print(len(train_dataset))
     # t = time.time()
-    kuchbhi = train_dataset[7]
+    # kuchbhi = train_dataset[7]
 
     # pdb.set_trace()
     # for i in range(len(train_dataset)):
@@ -213,7 +213,33 @@ def train_pcpnet(opt):
         print(len(i[0]))
         break
     
-    # pdb.set_trace()
+
+    test_dataset = PointcloudPatchDataset(
+        root=opt.indir,
+        shape_list_filename=opt.testset,
+        patch_radius=opt.patch_radius,
+        points_per_patch=opt.points_per_patch,
+        patch_features=target_features,
+        point_count_std=opt.patch_point_count_std,
+        seed=opt.seed,
+        identical_epochs=opt.identical_epochs,
+        use_pca=opt.use_pca,
+        center=opt.patch_center,
+        point_tuple=opt.point_tuple,
+        cache_capacity=opt.cache_capacity)
+    test_datasampler = RandomPointcloudPatchSampler(
+        test_dataset,
+        patches_per_shape=opt.patches_per_shape,
+        seed=opt.seed,
+        identical_epochs=opt.identical_epochs)
+
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        sampler=test_datasampler,
+        batch_size=opt.batchSize,
+        num_workers=int(opt.workers))
+
+    pdb.set_trace()
 
     # print('training set: %d patches (in %d batches) ' %
     #       (len(train_datasampler), len(train_dataloader)))
@@ -228,14 +254,20 @@ def train_pcpnet(opt):
         target = nn.functional.normalize(target, dim=1)
         # dot = torch.abs(torch.diag(torch.dot(pred, target)))
         dot = torch.sum(pred * target, dim=1)
-        loss = torch.mean(torch.acos(dot))   
-        # loss = 1 - torch.mean(dot)
+        # loss = torch.mean(torch.acos(dot))   
+        loss = 1 - torch.mean(dot)
         # pdb.set_trace()
         return loss
     
     model = CNN()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print("device: ", device)
     model = model.to(device)
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     model = nn.DataParallel(model)
+
+    # model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0003)
 
     tr_loss_per_epoch = []
@@ -267,24 +299,42 @@ def train_pcpnet(opt):
 
         tot_train_loss = np.mean(train_loss)  
         tr_loss_per_epoch.append(tot_train_loss)  
-        # print(f'epoch: {epoch}, training loss: {tot_train_loss}')
-        
-        # with torch.no_grad():
-        #     model.eval()
-        #     for i, (data, norms) in enumerate(val_loader, 0):
-        #         inputs = data.float()
-        #         inputs = inputs.permute(0,3,1,2)
-        #         norms = norms.float()
-        #         inputs, norms = inputs.to(device), norms.to(device)
-                
-        #         out = model(inputs)
-        #         loss = loss_func(out, norms)
-
-        #         val_loss.append(loss.item())
-
-        # tot_val_loss = np.mean(val_loss)
-        # val_loss_per_epoch.append(tot_val_loss)
         print(f'epoch: {epoch}, training loss: {tot_train_loss}')
+        
+        with torch.no_grad():
+            model.eval()
+            for i, (data, norms) in enumerate(test_dataloader, 0):
+                inputs = data.float()
+                inputs = inputs[:,:,:,:3]
+                inputs = inputs.permute(0,3,1,2)
+                norms = norms.float()
+                inputs, norms = inputs.to(device), norms.to(device)
+                
+                out = model(inputs)
+                loss = loss_func(out, norms)
+
+                val_loss.append(loss.item())
+
+        tot_val_loss = np.mean(val_loss)
+        val_loss_per_epoch.append(tot_val_loss)
+        print(f'epoch: {epoch}, val loss: {tot_val_loss}')
+
+        if epoch % 10 == 0:
+            # Additional information
+            EPOCH = epoch
+            PATH = "model_prev_cnn_with_val.pt"
+            LOSS = tot_train_loss
+
+            torch.save({
+                        'epoch': EPOCH,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': LOSS,
+                        'batchsize' : opt.batchSize,
+                        'val_losses_so_far' : val_loss_per_epoch,
+                        'train_losses_so_far' : tr_loss_per_epoch
+                        }, PATH)
+            print("Model saved at epoch: ", epoch)
             
 
 

@@ -17,7 +17,7 @@ def pca_plane(points):
     return pca.components_[2]/np.linalg.norm(pca.components_[2])
 
 def process_pcd(pcd, pcd_name):
-    indices = np.load("pclouds/"+pcd_name+".500inds.npy")
+    indices = np.load("pclouds/"+pcd_name+".250inds.npy")
     # _, indices = find_neighs(pcd, 250)
     # print("ind shape:", indices.shape)
     neighs = pcd[indices]
@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     shape_names = []
 
-    shape_list_filename = "pclouds/trainingset_whitenoise.txt"
+    shape_list_filename = "pclouds/validationset_whitenoise.txt"
     with open(shape_list_filename) as f:
         shape_names = f.readlines()
     shape_names = [x.strip() for x in shape_names]
@@ -39,5 +39,11 @@ if __name__ == "__main__":
         pcd = np.loadtxt("pclouds/"+shape+".xyz") 
         norm_esti_pca = process_pcd(pcd, shape)
         # print("norms shape:", norm_esti_pca.shape)
-        np.save("pclouds/"+shape+".500norms", norm_esti_pca)
-        print("saved norms for ", shape, "!")
+        file_path = "pclouds/"+shape+".250norms.npy"
+        if not os.path.exists(file_path):
+            np.save(file_path, norm_esti_pca)
+            print(f"Saved norms for {shape}!")
+        else:
+            print(f"Norms file for {shape} already exists.")
+        # np.save("pclouds/"+shape+".250norms", norm_esti_pca)
+        # print("saved norms for ", shape, "!")

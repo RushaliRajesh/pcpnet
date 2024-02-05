@@ -6,6 +6,7 @@ import torch
 import torch.utils.data as data
 import numpy as np
 import scipy.spatial as spatial
+import pdb
 
 
 # do NOT modify the returned points! kdtree uses a reference, not a copy of these points,
@@ -144,6 +145,7 @@ class Shape():
 
 class Cache():
     def __init__(self, capacity, loader, loadfunc):
+        # pdb.set_trace()
         self.elements = {}
         self.used_at = {}
         self.capacity = capacity
@@ -152,6 +154,7 @@ class Cache():
         self.counter = 0
 
     def get(self, element_id):
+        # pdb.set_trace()
         if element_id not in self.elements:
             # cache miss
 
@@ -177,6 +180,7 @@ class PointcloudPatchDataset(data.Dataset):
                  seed=None, identical_epochs=False, use_pca=True, center='point', point_tuple=1, cache_capacity=1, point_count_std=0.0, sparse_patches=False):
 
         # initialize parameters
+        
         self.root = root
         self.shape_list_filename = shape_list_filename
         self.patch_features = patch_features
@@ -210,6 +214,7 @@ class PointcloudPatchDataset(data.Dataset):
             self.shape_names = f.readlines()
         self.shape_names = [x.strip() for x in self.shape_names]
         self.shape_names = list(filter(None, self.shape_names))
+        
 
         # initialize rng for picking points in a patch
         if self.seed is None:
@@ -258,11 +263,15 @@ class PointcloudPatchDataset(data.Dataset):
             bbdiag = float(np.linalg.norm(shape.pts.max(0) - shape.pts.min(0), 2))
             self.patch_radius_absolute.append([bbdiag * rad for rad in self.patch_radius])
 
+            # pdb.set_trace()
+
     # returns a patch centered at the point with the given global index
     # and the ground truth normal the the patch center
     def __getitem__(self, index):
 
         # find shape that contains the point with given global index
+        # print("in get item: ", index)
+        # pdb.set_trace()
         shape_ind, patch_ind = self.shape_index(index)
 
         shape = self.shape_cache.get(shape_ind)
@@ -277,8 +286,9 @@ class PointcloudPatchDataset(data.Dataset):
         patch_pts_valid = []
         scale_ind_range = np.zeros([len(self.patch_radius_absolute[shape_ind]), 2], dtype='int')
         for s, rad in enumerate(self.patch_radius_absolute[shape_ind]):
+            # pdb.set_trace()
             patch_point_inds = np.array(shape.kdtree.query_ball_point(shape.pts[center_point_ind, :], rad))
-
+            
             # optionally always pick the same points for a given patch index (mainly for debugging)
             if self.identical_epochs:
                 self.rng.seed((self.seed + index) % (2**32))
@@ -394,6 +404,7 @@ class PointcloudPatchDataset(data.Dataset):
 
     # translate global (dataset-wide) point index to shape index & local (shape-wide) point index
     def shape_index(self, index):
+        # pdb.set_trace()
         shape_patch_offset = 0
         shape_ind = None
         for shape_ind, shape_patch_count in enumerate(self.shape_patch_count):
@@ -406,6 +417,7 @@ class PointcloudPatchDataset(data.Dataset):
 
     # load shape from a given shape index
     def load_shape_by_index(self, shape_ind):
+        # pdb.set_trace()
         point_filename = os.path.join(self.root, self.shape_names[shape_ind]+'.xyz')
         normals_filename = os.path.join(self.root, self.shape_names[shape_ind]+'.normals') if self.include_normals else None
         curv_filename = os.path.join(self.root, self.shape_names[shape_ind]+'.curv') if self.include_curvatures else None

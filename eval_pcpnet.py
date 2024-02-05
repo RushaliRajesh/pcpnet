@@ -8,7 +8,7 @@ import torch
 import torch.nn.parallel
 import torch.utils.data
 from dataset import PointcloudPatchDataset, SequentialPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-from pcpnet import PCPNet, MSPCPNet
+from model import PCPNet, MSPCPNet
 
 
 def parse_arguments():

@@ -72,7 +72,7 @@ class SequentialPointcloudPatchSampler(data.sampler.Sampler):
 
 class SequentialShapeRandomPointcloudPatchSampler(data.sampler.Sampler):
 
-    def __init__(self, data_source, patches_per_shape, seed=None, sequential_shapes=False, identical_epochs=False):
+    def __init__(self, data_source, patches_per_shape, seed=None, sequential_shapes=True, identical_epochs=False):
         self.data_source = data_source
         self.patches_per_shape = patches_per_shape
         self.sequential_shapes = sequential_shapes
@@ -314,13 +314,13 @@ class PointcloudPatchDataset(data.Dataset):
             closest = coords[closest_ind]
             vec1 = torch.subtract(center_point, closest)
             vec2 = torch.cat((vec2[:closest_ind], vec2[closest_ind+1:]), dim=0)
-            vec1 = torch.divide(vec1, torch.linalg.norm(vec1))
-            vec2 = torch.divide(vec2, torch.linalg.norm(vec2, dim=1, keepdim=True))
+            vec1 = torch.divide(vec1, (torch.linalg.norm(vec1)+1e-8))
+            vec2 = torch.divide(vec2, (torch.linalg.norm(vec2, dim=1, keepdim=True)+1e-8))
             # vec1 = nn.functional.normalize(vec1, dim=0)
             # vec2 = nn.functional.normalize(vec2, dim=1, p=2, keepdim=True)
             crs_pdts = torch.cross(vec1.expand_as(vec2), vec2)
             area = torch.linalg.norm(crs_pdts, dim=1)
-            crs_pdts = torch.divide(crs_pdts, torch.linalg.norm(crs_pdts, dim=1, keepdim=True))
+            crs_pdts = torch.divide(crs_pdts, (torch.linalg.norm(crs_pdts, dim=1, keepdim=True)+1e-8))
             # crs_pdts = nn.functional.normalize(crs_pdts, dim=1, p=2, keepdim=True)
             dot_pdts = torch.tensordot(crs_pdts, norms[i].T.to(torch.float32), dims=1)
             # sign = torch.divide(dot_pdts, torch.abs(dot_pdts))
@@ -484,7 +484,6 @@ class PointcloudPatchDataset(data.Dataset):
         #         raise ValueError('Unknown patch feature: %s' % (pfeat))
 
         return mat, shape.normals[center_point_ind, :]
-
 
     def __len__(self):
         return sum(self.shape_patch_count)
