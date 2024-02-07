@@ -12,15 +12,19 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
 import pdb
-from model import CNN
+from model_diff import CNN
 import numpy as np
 from torch.utils.data import DataLoader
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as F 
+from tqdm import tqdm
 
-# from tensorboardX import SummaryWriter # https://github.com/lanpa/tensorboard-pytorch
+# from tensorboardX import SummaryWriter 
+# # default `log_dir` is "runs" - we'll be more specific here
+# writer = SummaryWriter('runs/train_diff')
+# writerval = SummaryWriter('runs_val/val_diff')
 # from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-from dataset_impro import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
+from dataset_diff import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
 
 
 def parse_arguments():
@@ -32,7 +36,7 @@ def parse_arguments():
     parser.add_argument('--indir', type=str, default='./pclouds', help='input folder (point clouds)')
     parser.add_argument('--outdir', type=str, default='./models', help='output folder (trained models)')
     parser.add_argument('--logdir', type=str, default='./logs', help='training log folder')
-    parser.add_argument('--trainset', type=str, default='trainingset_whitenoise.txt', help='training set file name')
+    parser.add_argument('--trainset', type=str, default='train_sub.txt', help='training set file name')
     parser.add_argument('--testset', type=str, default='validationset_whitenoise.txt', help='test set file name')
     parser.add_argument('--saveinterval', type=int, default='10', help='save model each n epochs')
     parser.add_argument('--refine', type=str, default='', help='refine model at this path')
@@ -75,29 +79,34 @@ def parse_arguments():
 
     return parser.parse_args()
 
+# def loss_func(norm, init, pred):
+#     inter = torch.add(init, pred)
+    # pdb.set_trace()
+
 def cos_angle(v1, v2):
     v1 = nn.functional.normalize(v1, dim=1)
     v2 = nn.functional.normalize(v2, dim=1)
     # pdb.set_trace()
     return torch.bmm(v1.unsqueeze(1), v2.unsqueeze(2)).view(-1) / torch.clamp(v1.norm(2, 1) * v2.norm(2, 1), min=0.000001)
     
-def loss_func(pred, target):
-    loss = (1-cos_angle(pred, target)).pow(2).mean() 
+def loss_func(norm, init, pred):
+    pred_norm = torch.add(init, pred)
+    loss = (1-cos_angle(pred_norm, norm)).pow(2).mean() 
     # pdb.set_trace()
     return loss
 
-def rms_angular_error(estimated_normals, ground_truth_normals):
-    estimated_normals = F.normalize(estimated_normals, dim=1)
-    ground_truth_normals = F.normalize(ground_truth_normals, dim=1)
+# def rms_angular_error(estimated_normals, ground_truth_normals):
+#     estimated_normals = F.normalize(estimated_normals, dim=1)
+#     ground_truth_normals = F.normalize(ground_truth_normals, dim=1)
 
-    dot_product = torch.sum(estimated_normals * ground_truth_normals, dim=1)
-    dot_product = torch.clamp(dot_product, -1.0, 1.0)
-    angular_diff = torch.acos(dot_product) * torch.div(180.0, torch.pi)
-    squared_diff = angular_diff.pow(2)
-    mean_squared_diff = torch.mean(squared_diff)
-    rms_angular_error = torch.sqrt(mean_squared_diff)
+#     dot_product = torch.sum(estimated_normals * ground_truth_normals, dim=1)
+#     dot_product = torch.clamp(dot_product, -1.0, 1.0)
+#     angular_diff = torch.acos(dot_product) * torch.div(180.0, torch.pi)
+#     squared_diff = angular_diff.pow(2)
+#     mean_squared_diff = torch.mean(squared_diff)
+#     rms_angular_error = torch.sqrt(mean_squared_diff)
 
-    return rms_angular_error.item()  
+#     return rms_angular_error.item()  
 
 def train_pcpnet(opt):
 
@@ -199,22 +208,6 @@ def train_pcpnet(opt):
         point_tuple=opt.point_tuple,
         cache_capacity=opt.cache_capacity)
     
-    def encode_position(x, enc_dim):
-        
-        positions = [x]
-
-        for i in range(enc_dim):
-            print(torch.sin( (2.0**i) *  x).shape)
-            positions.append(torch.sin( (2.0**i) *  x ))
-            positions.append(torch.cos( (2.0**i) *  x ))
-        
-        print(len(positions))
-        return torch.concat(positions, dim=2)
-    
-    x = train_dataset[34]
-    print(x[0].shape)
-    print(encode_position(torch.tensor(x[0][:,:,:3]), 10).shape)
-    
     print(len(train_dataset))
     # t = time.time()
     # kuchbhi = train_dataset[7]
@@ -240,13 +233,14 @@ def train_pcpnet(opt):
     # for i in train_dataset:
     #     c=c+1
     #     print(train_dataset[0])
-    # print(c)        
+    print(len(train_datasampler))        
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         sampler=train_datasampler,
         batch_size=opt.batchSize,
-        num_workers=int(opt.workers))
+        num_workers=int(opt.workers),
+        drop_last = True)
     
     for i in train_dataloader:
         print(len(i[0]))
@@ -266,10 +260,9 @@ def train_pcpnet(opt):
         center=opt.patch_center,
         point_tuple=opt.point_tuple,
         cache_capacity=opt.cache_capacity)
-    
     test_datasampler = RandomPointcloudPatchSampler(
         test_dataset,
-        patches_per_shape=opt.patches_per_shape,
+        patches_per_shape=300,
         seed=opt.seed,
         identical_epochs=opt.identical_epochs)
 
@@ -277,113 +270,135 @@ def train_pcpnet(opt):
         test_dataset,
         sampler=test_datasampler,
         batch_size=opt.batchSize,
-        num_workers=int(opt.workers))
+        num_workers=int(opt.workers),
+        drop_last = True)
 
     # pdb.set_trace()
 
     # print('training set: %d patches (in %d batches) ' %
     #       (len(train_datasampler), len(train_dataloader)))
 
-#     try:
-#         os.makedirs(opt.outdir)
-#     except OSError:
-#         pass
+    try:
+        os.makedirs(opt.outdir)
+    except OSError:
+        pass
     
     
-#     model = CNN()
-#     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-#     print("device: ", device)
-#     model = model.to(device)
-#     # if torch.cuda.device_count() > 1:
-#     #     print("Let's use", torch.cuda.device_count(), "GPUs!")
-#     #     model = nn.DataParallel(model)
+    model = CNN()
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    print("device: ", device)
+    model = model.to(device)
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     model = nn.DataParallel(model)
 
-#     # model.to(device)
-#     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-#     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[5,10,20,30], gamma=0.1) # milestones in number of optimizer iterations
-#     tr_loss_per_epoch = []
-#     val_loss_per_epoch = []
+    # model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.002, weight_decay=1e-5)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[10,15,20,25,30], gamma=0.5) # milestones in number of optimizer iterations
+    tr_loss_per_epoch = []
+    val_loss_per_epoch = []
+    cos_loss = nn.CosineEmbeddingLoss()
 
-#     # checkpoint = torch.load("model_prev_cnn_with_val.pt")
-#     # model.load_state_dict(checkpoint['model_state_dict'])
-#     # hehe_epoch = checkpoint['epoch']
-
-#     for epoch in range(opt.nepoch):
-#         train_loss = []
-#         val_loss = []
-#         eval_tr_ls = []
-#         eval_val_ls = []
-#         model.train()
-#         for i, (data, norms) in enumerate(train_dataloader, 0):
-#             inputs = data.float()
-#             inputs = inputs[:,:,:,:3]
-#             # pdb.set_trace()
-#             inputs = inputs.permute(0,3,1,2)
-#             # pdb.set_trace()
-#             norms = norms.float()
-#             inputs, norms = inputs.to(device), norms.to(device)
+    for epoch in range(opt.nepoch):
+        train_loss = []
+        val_loss = []
+        model.train()
+        pbar = tqdm(train_dataloader)
+        for i, (data, norms, init, diff) in enumerate(pbar, 0):
+            data = data.float()
+            inputs = torch.cat((data[:,:,:,:3], data[:,:,:,6:9]), dim=3)
+            # pdb.set_trace()
+            inputs = inputs.permute(0,3,1,2)
+            # pdb.set_trace()
+            norms = norms.float()
+            init = init.float()
+            diff = diff.float()
+            inputs, norms, init, diff = inputs.to(device), norms.to(device), init.to(device), diff.to(device)
             
-#             out = model(inputs)
-            
-#             loss = loss_func(out, norms)
+            out = model(inputs)
+            esti_norms = torch.add(init,out)
+            target = torch.ones(opt.batchSize).to(device)
+            loss = cos_loss(esti_norms, norms, target)
+            # pdb.set_trace()
 
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-#             train_loss.append(loss.item())
-#             eval_tr_ls.append(rms_angular_error(out, norms))
-#             # pdb.set_trace()
+            # if (i%50) == 0:
 
-#         bef_lr = optimizer.param_groups[0]['lr']
-#         scheduler.step()
-#         aft_lr = optimizer.param_groups[0]['lr']
-#         print(f'epoch: {epoch}, learning rate: {bef_lr} -> {aft_lr}')
+            pbar.set_postfix(Epoch=epoch, tr_loss=loss.item())
+            # print(f'epoch: {epoch}, iter: {i}, training_loss: {loss.item()}')
 
-#         tot_train_loss = np.mean(train_loss)  
-#         tr_loss_per_epoch.append(tot_train_loss)  
-#         eval_tr = np.mean(eval_tr_ls)
-#         print(f'epoch: {epoch}, training loss: {tot_train_loss}, training RMS Angular Error :P : {eval_tr}')
+            train_loss.append(loss.item())
+            # pdb.set_trace()
+
+        bef_lr = optimizer.param_groups[0]['lr']
+        scheduler.step()
+        aft_lr = optimizer.param_groups[0]['lr']
+        if(bef_lr != aft_lr):
+            print(f'epoch: {epoch}, learning rate: {bef_lr} -> {aft_lr}')
+
+        tot_train_loss = np.mean(train_loss)  
+        tr_loss_per_epoch.append(tot_train_loss)
+
         
-#         with torch.no_grad():
-#             model.eval()
-#             for i, (data, norms) in enumerate(test_dataloader, 0):
-#                 inputs = data.float()
-#                 inputs = inputs[:,:,:,:3]
-#                 inputs = inputs.permute(0,3,1,2)
-#                 norms = norms.float()
-#                 inputs, norms = inputs.to(device), norms.to(device)
+        
+        with torch.no_grad():
+            model.eval()
+            pbar1 = tqdm(train_dataloader)
+            for i, (data, norms, init, diff) in enumerate(pbar1, 0):
+                inputs = data.float()
+                inputs = torch.cat((inputs[:,:,:,:3], inputs[:,:,:,3:6]), dim=3)
+                inputs = inputs.permute(0,3,1,2)
+                norms = norms.float()
+                init = init.float()
+                diff = diff.float()
+                inputs, norms, init, diff = inputs.to(device), norms.to(device), init.to(device), diff.to(device)
                 
-#                 out = model(inputs)
-#                 loss = loss_func(out, norms)
+                out = model(inputs)
+                # loss = loss_func(norms, init, out)
+                out = model(inputs)
+                esti_norms = torch.add(init,out)
+                target = torch.ones(opt.batchSize).to(device)
+                loss = cos_loss(esti_norms, norms, target)
 
-#                 val_loss.append(loss.item())
-#                 eval_val_ls.append(rms_angular_error(out, norms))
+                val_loss.append(loss.item())
+
+                # if (i%50) == 0:
+                # print(f'epoch: {epoch}, iter: {i}, val_loss: {loss.item()}')
+                pbar1.set_postfix(Epoch=epoch, val_loss=loss.item())
                 
-#         tot_val_loss = np.mean(val_loss)
-#         val_loss_per_epoch.append(tot_val_loss)
-#         eval_val = np.mean(eval_val_ls)
-#         print(f'epoch: {epoch}, val loss: {tot_val_loss}, val RMS Angular Error :P : {eval_val}')
+        tot_val_loss = np.mean(val_loss)
+        val_loss_per_epoch.append(tot_val_loss)
+        print(f'epoch: {epoch}, val loss: {tot_val_loss}')
+        print(f'epoch: {epoch} Completed, training loss: {tot_train_loss}')
 
-#         if epoch % 10 == 0:
-#             # Additional information
-#             EPOCH = epoch
-#             PATH = "model_prev_cnn_with_val.pt"
-#             LOSS = tot_train_loss
+        # writer.add_scalar('train loss',tot_train_loss, epoch)
+        # writerval.add_scalar('val loss',
+        #                     tot_val_loss,
+        #                     epoch)
+        if epoch % 10 == 0:
+            # Additional information
+            EPOCH = epoch
+            PATH = "model_diff_cosine.pt"
+            LOSS = tot_train_loss
 
-#             torch.save({
-#                         'epoch': EPOCH,
-#                         'model_state_dict': model.state_dict(),
-#                         'optimizer_state_dict': optimizer.state_dict(),
-#                         'loss': LOSS,
-#                         'batchsize' : opt.batchSize,
-#                         'val_losses_so_far' : val_loss_per_epoch,
-#                         'train_losses_so_far' : tr_loss_per_epoch
-#                         }, PATH)
-#             print("Model saved at epoch: ", epoch)
+            torch.save({
+                        'epoch': EPOCH,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': LOSS,
+                        'batchsize' : opt.batchSize,
+                        'val_losses_so_far' : val_loss_per_epoch,
+                        'train_losses_so_far' : tr_loss_per_epoch
+                        }, PATH)
+            print("Model saved at epoch: ", epoch)
             
 
 
 if __name__ == '__main__':
     train_opt = parse_arguments()
     train_pcpnet(train_opt)
+
+
