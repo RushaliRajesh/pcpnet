@@ -22,18 +22,24 @@ class CNN(nn.Module):
         self.bn3 = nn.InstanceNorm2d(64)
         self.bn4 = nn.InstanceNorm2d(32)
         self.bn5 = nn.InstanceNorm2d(16)
+        self.drop1 = nn.Dropout(p=0.2)
+        self.drop2 = nn.Dropout(p=0.2)
       
 
     def forward(self, x):
         # x = self.act(self.pre_conv(x))
-        x = self.act(self.bn1((self.conv1(x))))
-        x = self.act(self.bn2((self.conv2(x))))
+        # x = self.act(self.bn1((self.conv1(x))))
+        # x = self.act(self.bn2((self.conv2(x))))
         # x = self.act(self.bn((self.conv3(x))))
         # x = self.act(self.bn4((self.conv4(x))))
         # x = self.act(self.bn5((self.conv5(x))))
+
+        x = self.act((self.conv1(x)))
+        x = self.act((self.conv2(x)))
+
         x = self.flat(x)
-        x = self.act((self.fc1(x)))
-        x = self.act((self.fc2(x)))  
+        x = self.act(self.drop1(self.fc1(x)))
+        x = self.act(self.drop2(self.fc2(x)))
         x = self.fc3(x)
         x = torch.tanh(x)
         

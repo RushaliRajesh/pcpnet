@@ -319,24 +319,50 @@ class PointcloudPatchDataset(data.Dataset):
             else:
                 coords = coords[:25]
             
+            # vec2 = torch.subtract(center_point, coords)
+            # closest_ind = torch.argmin(torch.linalg.norm(vec2, dim=1))
+            # closest = coords[closest_ind]
+            # vec1 = torch.subtract(center_point, closest)
+            # vec2 = torch.cat((vec2[:closest_ind], vec2[closest_ind+1:]), dim=0)
+            # vec1 = torch.divide(vec1, (torch.linalg.norm(vec1)+1e-8))
+            # vec2 = torch.divide(vec2, (torch.linalg.norm(vec2, dim=1, keepdim=True)+1e-8))
+            # crs_pdts = torch.cross(vec1.expand_as(vec2), vec2)
+            # area = torch.linalg.norm(crs_pdts, dim=1)
+            # crs_pdts = torch.divide(crs_pdts, (torch.linalg.norm(crs_pdts, dim=1, keepdim=True)+1e-8))
+            # dot_pdts = torch.tensordot(crs_pdts, norms[i].T.to(torch.float32), dims=1)
+            # sign = torch.sign(dot_pdts)
+            # area = torch.multiply(area, sign)
+            # sort_indices = torch.argsort(area)
+            # sorted_coords = coords[sort_indices]
+            
+            # sorted_coords = torch.cat((sorted_coords, torch.sub(center_point, sorted_coords)), dim=1)
+            # sorted_coords = torch.cat((sorted_coords, norms[i].expand_as(sorted_coords[:,:3])), dim=1)
             vec2 = torch.subtract(center_point, coords)
             closest_ind = torch.argmin(torch.linalg.norm(vec2, dim=1))
             closest = coords[closest_ind]
             vec1 = torch.subtract(center_point, closest)
             vec2 = torch.cat((vec2[:closest_ind], vec2[closest_ind+1:]), dim=0)
-            vec1 = torch.divide(vec1, (torch.linalg.norm(vec1)+1e-8))
-            vec2 = torch.divide(vec2, (torch.linalg.norm(vec2, dim=1, keepdim=True)+1e-8))
+            # vec1 = torch.divide(vec1, (torch.linalg.norm(vec1)+1e-8))
+            # vec2 = torch.divide(vec2, (torch.linalg.norm(vec2, dim=1, keepdim=True)+1e-8))
+            vec1 = nn.functional.normalize(vec1, dim=0) 
+            vec2 = nn.functional.normalize(vec2, dim=1, p=2)
             crs_pdts = torch.cross(vec1.expand_as(vec2), vec2)
             area = torch.linalg.norm(crs_pdts, dim=1)
-            crs_pdts = torch.divide(crs_pdts, (torch.linalg.norm(crs_pdts, dim=1, keepdim=True)+1e-8))
+            # crs_pdts = torch.divide(crs_pdts, (torch.linalg.norm(crs_pdts, dim=1, keepdim=True)+1e-8))
+            crs_pdts = nn.functional.normalize(crs_pdts, dim=1, p=2)
             dot_pdts = torch.tensordot(crs_pdts, norms[i].T.to(torch.float32), dims=1)
+            # sign = torch.divide(dot_pdts, torch.abs(dot_pdts))
             sign = torch.sign(dot_pdts)
             area = torch.multiply(area, sign)
             sort_indices = torch.argsort(area)
+            #added for norm of coords and diff separately
+            coords = nn.functional.normalize(coords, dim=1, p=2)
             sorted_coords = coords[sort_indices]
-            
-            sorted_coords = torch.cat((sorted_coords, torch.sub(center_point, sorted_coords)), dim=1)
+            sub = torch.sub(center_point, sorted_coords)
+            sub = nn.functional.normalize(sub, dim=1, p=2)
+            sorted_coords = torch.cat((sorted_coords, sub), dim=1)
             sorted_coords = torch.cat((sorted_coords, norms[i].expand_as(sorted_coords[:,:3])), dim=1)
+            # print(sorted_coords.shape)
             
             mat.append(sorted_coords)
             # pdb.set_trace()
@@ -351,13 +377,30 @@ class PointcloudPatchDataset(data.Dataset):
         ax = fig.add_subplot(111, projection='3d')
         for i in range(10):
             cluster_points = pcd[labels == i]
-            print(cluster_points.shape)
-            print(cluster_points)
+            # print(cluster_points.shape)
+            # print(cluster_points)
             ax.scatter(cluster_points[:, 0], cluster_points[:, 1], cluster_points[:,2], c=colors[i], label=f'Cluster {i + 1}')
         ax.scatter(fixed_pnt[0], fixed_pnt[1], fixed_pnt[2], c='red', marker='+', s=100, label='Fixed Point')
         ax.set_title('3D Point Clustering based on Radial Distance')
         ax.legend()
+        plt.savefig("vis.png")
         plt.show()
+
+    def vis_mat(self, mat, center):
+        colors = ['blue', 'red', 'green', 'purple', 'orange', 'black', 'pink', 'yellow', 'brown', 'cyan']
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for ind,i in enumerate(mat):
+            print(i)
+            ax.scatter(i[:,0], i[:,1], i[:,2], c=colors[ind], label = f'ring {ind+1}')
+        ax.scatter(center[0], center[1], center[2], c = 'black', marker='x', label = f'center')
+        ax.set_title("verifying rings from patches")
+        ax.legend()
+        print("in vis_mat")
+        plt.savefig("vis_mat.png")
+        # plt.show()
 
 
     def __getitem__(self, index):
@@ -378,9 +421,13 @@ class PointcloudPatchDataset(data.Dataset):
             kmeans = KMeans(n_clusters=10).fit(neighs_dists.reshape(-1,1))
             patch_ring_inds = kmeans.labels_
             local_patch = shape.pts[neighs_inds]
+            # self.vis(local_patch, patch_ring_inds, shape.pts[center_point_ind])
             mat = self.process_all(patch_ring_inds, center_point_ind, local_patch, neighs_inds, shape.pts[center_point_ind],shape.init)
 
         mat = torch.from_numpy(mat)
+
+        # self.vis_mat(mat,shape.pts[center_point_ind])
+        
         if (self.task == 'direct_pos_6_dim'):
             mat = mat[:, :, 3:9]
             mat = self.encode_position(mat, 5)

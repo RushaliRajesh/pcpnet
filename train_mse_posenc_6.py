@@ -12,21 +12,19 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
 import pdb
-from model import CNN
 import numpy as np
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F 
 from tqdm import tqdm
+from model import CNN
+# from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
+from dataset_posenc import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
 
 # from tensorboardX import SummaryWriter 
 # # default `log_dir` is "runs" - we'll be more specific here
 # writer = SummaryWriter('runs/train_diff')
 # writerval = SummaryWriter('runs_val/val_diff')
-
-# from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-from dataset_posenc import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -205,8 +203,9 @@ def train_pcpnet(opt):
     #     model = nn.DataParallel(model)
 
     # model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.002, weight_decay=1e-5)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[10,15,20,25,30], gamma=0.5) # milestones in number of optimizer iterations
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-2, weight_decay=1e-5)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=3e-2)
+    # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[10,15,20,25,30], gamma=0.5) # milestones in number of optimizer iterations
     tr_loss_per_epoch = []
     val_loss_per_epoch = []
     mse_loss = nn.MSELoss()
@@ -225,23 +224,48 @@ def train_pcpnet(opt):
             inputs = inputs.permute(0,3,1,2)
             norms = norms.float()
             inputs, norms = inputs.to(device), norms.to(device)
-            
+            optimizer.zero_grad()
+            # inputs = 
             out = model(inputs)
             loss = mse_loss(out, norms)
             # pdb.set_trace()
 
-            optimizer.zero_grad()
             loss.backward()
+
+
+            prev_param_values = {name: p.clone().detach() for name, p in model.named_parameters()}
+
             optimizer.step()
+            # print("max_ori: ", torch.max(norms))
+            # print("min_ori: ", torch.min(norms))
+            # print("max_pred: ", torch.max(out))             
+            # print("min_pred: ", torch.min(out))
+            # print("max_inp: ", torch.max(inputs))
+            # print("min_inp: ", torch.min(inputs))
+            # print(inputs.shape)
+            tolerance = 1e-6  # Define a small tolerance value
+            for name, p in model.named_parameters():
+                diff = torch.abs(prev_param_values[name] - p.detach())
+                max_diff = torch.max(diff)
+                if max_diff <= tolerance:
+                    print(f"{name} is not updating significantly (max diff: {max_diff.item()})")
+            for name, parameter in model.named_parameters():
+                if parameter.grad is not None:
+                    grad_norm = parameter.grad.norm(2)
+                    print(f"{name}: gradient norm = {grad_norm}")
+            if torch.isnan(data).any() or torch.isinf(data).any():
+                print("Data contains NaN or inf values")
+                break
 
             train_loss.append(loss.item())
             pbar.set_postfix(Epoch=epoch, tr_loss=loss.item())
+            pbar.set_description('IterL: {}'.format(loss.item()))
 
-        bef_lr = optimizer.param_groups[0]['lr']
-        scheduler.step()
-        aft_lr = optimizer.param_groups[0]['lr']
-        if(bef_lr != aft_lr):
-            print(f'epoch: {epoch}, learning rate: {bef_lr} -> {aft_lr}')
+        # bef_lr = optimizer.param_groups[0]['lr']
+        # scheduler.step()
+        # aft_lr = optimizer.param_groups[0]['lr']
+        # if(bef_lr != aft_lr):
+        #     print(f'epoch: {epoch}, learning rate: {bef_lr} -> {aft_lr}')
 
         tot_train_loss = np.mean(train_loss)  
         tr_loss_per_epoch.append(tot_train_loss)
@@ -280,8 +304,8 @@ def train_pcpnet(opt):
                         }, PATH)
             print("Model saved at epoch: ", epoch)
 
-        print(f'epoch: {epoch} training loss: {tot_train_loss}, tr_rmse : {np.mean(train_rmse)}, {PATH}')
-        print(f'epoch: {epoch} val loss: {tot_val_loss}, val_rmse : {np.mean(val_rmse)}')
+        print(f'epoch: {epoch} training loss: {tot_train_loss}, {PATH}')
+        print(f'epoch: {epoch} val loss: {tot_val_loss}')
 
         # writer.add_scalar('train loss',tot_train_loss, epoch)
         # writerval.add_scalar('val loss',

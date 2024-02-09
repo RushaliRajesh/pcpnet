@@ -20,8 +20,8 @@ import torch.nn.functional as F
 
 # from tensorboardX import SummaryWriter # https://github.com/lanpa/tensorboard-pytorch
 # from dataset import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-from dataset_impro import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
-
+# from dataset_impro import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
+from dataset_diff import PointcloudPatchDataset, RandomPointcloudPatchSampler, SequentialShapeRandomPointcloudPatchSampler
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -186,6 +186,7 @@ def train_pcpnet(opt):
     # create train and test dataset loaders
     # pdb.set_trace()
     train_dataset = PointcloudPatchDataset(
+        # task = 'direct_pos_3_dim',
         root=opt.indir,
         shape_list_filename=opt.trainset,
         patch_radius=opt.patch_radius,
@@ -199,85 +200,91 @@ def train_pcpnet(opt):
         point_tuple=opt.point_tuple,
         cache_capacity=opt.cache_capacity)
     
-    def encode_position(x, enc_dim):
+    # def encode_position(x, enc_dim):
         
-        positions = [x]
+    #     positions = [x]
 
-        for i in range(enc_dim):
-            print(torch.sin( (2.0**i) *  x).shape)
-            positions.append(torch.sin( (2.0**i) *  x ))
-            positions.append(torch.cos( (2.0**i) *  x ))
+    #     for i in range(enc_dim):
+    #         print(torch.sin( (2.0**i) *  x).shape)
+    #         positions.append(torch.sin( (2.0**i) *  x ))
+    #         positions.append(torch.cos( (2.0**i) *  x ))
         
-        print(len(positions))
-        return torch.concat(positions, dim=2)
+    #     print(len(positions))
+    #     return torch.concat(positions, dim=2)
     
-    x = train_dataset[34]
-    print(x[0].shape)
-    print(encode_position(torch.tensor(x[0][:,:,:3]), 10).shape)
-    
-    print(len(train_dataset))
-    # t = time.time()
-    # kuchbhi = train_dataset[7]
+    # x = train_dataset[34]
+    # print(x[0].shape)
+    # print(encode_position(torch.tensor(x[0][:,:,:3]), 10).shape)
 
-    # pdb.set_trace()
-    # for i in range(len(train_dataset)):
-    #     print(train_dataset[i][0].shape)
-    #     print(train_dataset[i][1].shape)
+    x = train_dataset[284492]
+    print(x)
+    
+    
+    # print(len(train_dataset))
+    # # t = time.time()
+    # # kuchbhi = train_dataset[7]
+
+    # # pdb.set_trace()
+    # # for i in range(len(train_dataset)):
+    # #     print(train_dataset[i][0].shape)
+    # #     print(train_dataset[i][1].shape)
         
         
-    # out = train_dataset[222]
-    # print("c: ",c)
-    # print(time.time()-t)    
+    # # out = train_dataset[222]
+    # # print("c: ",c)
+    # # print(time.time()-t)    
     
-    # if opt.training_order == 'random':
-    train_datasampler = RandomPointcloudPatchSampler(
-        train_dataset,
-        patches_per_shape=opt.patches_per_shape,
-        seed=opt.seed,
-        identical_epochs=opt.identical_epochs)
+    # # if opt.training_order == 'random':
+    # train_datasampler = RandomPointcloudPatchSampler(
+    #     train_dataset,
+    #     patches_per_shape=opt.patches_per_shape,
+    #     seed=opt.seed,
+    #     identical_epochs=opt.identical_epochs)
     
-    # c=0
-    # for i in train_dataset:
-    #     c=c+1
-    #     print(train_dataset[0])
-    # print(c)        
+    # # c=0
+    # # for i in train_dataset:
+    # #     c=c+1
+    # #     print(train_dataset[0])
+    # # print(c)        
 
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        sampler=train_datasampler,
-        batch_size=opt.batchSize,
-        num_workers=int(opt.workers))
+    # train_dataloader = torch.utils.data.DataLoader(
+    #     train_dataset,
+    #     sampler=train_datasampler,
+    #     batch_size=opt.batchSize,
+    #     num_workers=int(opt.workers))
     
-    for i in train_dataloader:
-        print(len(i[0]))
-        break
+    # for i in train_dataloader:
+    #     print(len(i[0]))
+    #     break
     
 
-    test_dataset = PointcloudPatchDataset(
-        root=opt.indir,
-        shape_list_filename=opt.testset,
-        patch_radius=opt.patch_radius,
-        points_per_patch=opt.points_per_patch,
-        patch_features=target_features,
-        point_count_std=opt.patch_point_count_std,
-        seed=opt.seed,
-        identical_epochs=opt.identical_epochs,
-        use_pca=opt.use_pca,
-        center=opt.patch_center,
-        point_tuple=opt.point_tuple,
-        cache_capacity=opt.cache_capacity)
-    
-    test_datasampler = RandomPointcloudPatchSampler(
-        test_dataset,
-        patches_per_shape=opt.patches_per_shape,
-        seed=opt.seed,
-        identical_epochs=opt.identical_epochs)
+    # test_dataset = PointcloudPatchDataset(
+    #     task = 'direct_pos_3_dim',
+    #     root=opt.indir,
+    #     shape_list_filename=opt.testset,
+    #     patch_radius=opt.patch_radius,
+    #     points_per_patch=opt.points_per_patch,
+    #     patch_features=target_features,
+    #     point_count_std=opt.patch_point_count_std,
+    #     seed=opt.seed,
+    #     identical_epochs=opt.identical_epochs,
+    #     use_pca=opt.use_pca, 
+    #     center=opt.patch_center,
+    #     point_tuple=opt.point_tuple,
+    #     cache_capacity=opt.cache_capacity)
+    # y = test_dataset[99]
+    # print(y)
+    # test_datasampler = RandomPointcloudPatchSampler(
+    #     test_dataset,
+    #     patches_per_shape=opt.patches_per_shape,
+    #     seed=opt.seed,
+    #     identical_epochs=opt.identical_epochs)
 
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
-        sampler=test_datasampler,
-        batch_size=opt.batchSize,
-        num_workers=int(opt.workers))
+    # test_dataloader = torch.utils.data.DataLoader(
+    #     test_dataset,
+    #     sampler=test_datasampler,
+    #     batch_size=opt.batchSize,
+    #     num_workers=int(opt.workers))
 
     # pdb.set_trace()
 
